@@ -1,25 +1,45 @@
 import 'dart:async';
-
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:intl/intl.dart';
+import 'package:maps_launcher/maps_launcher.dart';
+
+import '../dao/registro_dao.dart';
+import '../model/ponto_eletronico.dart';
+import 'detalhes_pe.dart';
 
 class HomePage extends StatefulWidget{
-  const HomePage({Key? key}) : super(key:  key);
+  HomePage({Key? key}) : super(key: key);
 
   @override
   _HomePageState createState() => _HomePageState();
 }
 
 class _HomePageState extends State<HomePage>{
+  final _registros = <PontoEletronico>[];
+  final _dateFormat = DateFormat('dd/MM/yyyy - H:m:s');
+  final _dao = RegistroDao();
+  var _carregando = false;
+  static const acaoVisualizar = 'visualizar';
+  static const acaoMapa = 'mapa';
+  String formattedTime = DateFormat('Hms').format(DateTime.now());
+  String hour = DateFormat('a').format(DateTime.now());
+  late Timer _timer;
 
-  final _linha = <String>[];
-  StreamSubscription<Position>? _subscription;
-  Position? _ultimaPosicaoOpbtida;
-  double _distanciaTotalPercorrida = 0;
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(const Duration(milliseconds: 500), (timer) => _update());
+    _atualizarLista();
+  }
 
-  bool get _monitorandoLocalizacao => _subscription != null;
-
+  void _update() {
+    setState(() {
+      formattedTime = DateFormat('Hms').format(DateTime.now());
+      hour = DateFormat('a').format(DateTime.now());
+    });
+  }
 
   @override
   Widget build(BuildContext context){
@@ -31,7 +51,7 @@ class _HomePageState extends State<HomePage>{
 
   AppBar _criarAppBar(){
     return AppBar(
-      title: Text('Usando GPS'),
+      title: Text("Ponto Eletrônico"),
     );
   }
 
@@ -39,159 +59,190 @@ class _HomePageState extends State<HomePage>{
     padding: EdgeInsets.all(10),
     child: Column(
       children: [
-        ElevatedButton(
-          onPressed: _obterUltimaLocalizacao,
-          child: Text('Obter a ultima localização conhecida'),
+        Text(formattedTime,
+          style: TextStyle(
+            fontSize: 50
+          ),
         ),
         ElevatedButton(
           onPressed: _obterLocalizacaoAtual,
-          child: Text('Obter a localização atual do dispositivo'),
-        ),
-        ElevatedButton(
-          onPressed: _monitorandoLocalizacao ? _pararMonitoramento : _iniciarMonitoramento,
-          child: Text(_monitorandoLocalizacao ? 'Parar o Monitoramento': 'Iniciar Monitoramento'),
-        ),
-        ElevatedButton(
-          onPressed: _limpaLog,
-          child: Text('Limpar log'),
+          child: Text('Marcar ponto'),
         ),
         Divider(),
         Expanded(
-          child: ListView.builder(
-              shrinkWrap: true,
-              itemCount: _linha.length,
-              itemBuilder: (_, index) => Padding(
-                padding: EdgeInsets.all(5),
-                child: Text(_linha[index]),
-              )
-          ),
-        ),
+            child: ListView.separated(
+                shrinkWrap: true,
+                itemCount: _registros.length,
+                itemBuilder: (BuildContext context, int index){
+                  final registro = _registros[index];
+                  return PopupMenuButton<String>(
+                    child: ListTile(
+                      leading: Text('${registro.id}'),
+                      title: Text('${registro.data}'),
+                      subtitle: Text('Lat: ${registro.latitude} '
+                          'Long: ${registro.longitude}'),
+                    ),
+                    itemBuilder: (_) => _criarItensMenuPopup(),
+                    onSelected: (String valorSelecionado) {
+                      if (valorSelecionado == acaoVisualizar) {
+                        _abrirPaginaDetalhes(registro);
+                      }else if (valorSelecionado == acaoMapa) {
+                        _abrirCoordenadasMapaExterno(
+                            registro.latitude!,
+                            registro.longitude!
+                        );
+                      }
+                    },
+                  );
+                },
+                separatorBuilder: (_, __) => Divider(),
+            )
+        )
       ],
     ),
   );
 
-  void _obterUltimaLocalizacao() async {
-    bool permissoesPermitidas = await _permissoesPermitidas();
-    if(!permissoesPermitidas){
+  List<PopupMenuEntry<String>> _criarItensMenuPopup() => [
+    PopupMenuItem(
+      value: acaoVisualizar,
+      child: Row(
+        children: const [
+          Icon(Icons.info, color: Colors.blue),
+          Padding(
+            padding: EdgeInsets.only(left: 10),
+            child: Text('Detalhes'),
+          ),
+        ],
+      ),
+    ),
+    PopupMenuItem(
+      value: acaoMapa,
+      child: Row(
+        children: const [
+          Icon(Icons.map, color: Colors.green),
+          Padding(
+            padding: EdgeInsets.only(left: 10),
+            child: Text('Abrir no Mapa'),
+          ),
+        ],
+      ),
+    ),
+  ];
+
+  void _abrirPaginaDetalhes(PontoEletronico pe) {
+    Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => DetalhesPEPage(
+            pe: pe,
+          ),
+        ));
+  }
+
+  void _abrirCoordenadasMapaExterno(String lat, String long){
+    if(lat == 'null' || long == 'null'){
       return;
     }
-    Position? position = await Geolocator.getLastKnownPosition();
+    MapsLauncher.launchCoordinates(
+        double.parse(lat),
+        double.parse(long)
+    );
+  }
+
+  void _atualizarLista() async {
     setState(() {
-      if(position == null){
-        _linha.add('Nenhuma localização registrada');
-      }else{
-        _linha.add('Latitude: ${position.latitude}  |  Longetude: ${position.longitude}');
+      _carregando = true;
+    });
+    final reg = await _dao.listar();
+    setState(() {
+      _carregando = false;
+      _registros.clear();
+      if (reg.isNotEmpty) {
+        _registros.addAll(reg);
       }
     });
   }
 
-  void _obterLocalizacaoAtual() async {
+  void _obterLocalizacaoAtual() async{
     bool servicoHabilitado = await _servicoHabilitado();
+
     if(!servicoHabilitado){
       return;
     }
-    bool permissoesPermitidas = await _permissoesPermitidas();
+    bool permissoesPermitidas = await _verificaPermissoes();
     if(!permissoesPermitidas){
       return;
     }
-    Position position = await Geolocator.getCurrentPosition();
+    Position posicao = await Geolocator.getCurrentPosition();
+    PontoEletronico registro = PontoEletronico(id: 0);
+    registro.data = _dateFormat.format(DateTime.now());
+    if(posicao == null){
+      _dao.salvar(registro);
+    }else{
+      registro.latitude = '${posicao.latitude}';
+      registro.longitude = '${posicao.longitude}';
+      _dao.salvar(registro);
+    }
     setState(() {
-      _linha.add('Latitude: ${position.latitude}  |  Longetude: ${position.longitude}');
+      _atualizarLista();
     });
-
   }
 
-  void _iniciarMonitoramento() async {
-    bool servicoHabilitado = await _servicoHabilitado();
+  Future<bool> _servicoHabilitado() async{
+    bool servicoHabilitado = await Geolocator.isLocationServiceEnabled();
     if(!servicoHabilitado){
-      return;
-    }
-    bool permissoesPermitidas = await _permissoesPermitidas();
-    if(!permissoesPermitidas){
-      return;
-    }
-
-    LocationSettings locationSettings = LocationSettings(accuracy: LocationAccuracy.high, distanceFilter: 100);
-
-    _subscription = Geolocator.getPositionStream(locationSettings: locationSettings).listen(
-            (Position position) {
-          setState(() {
-            _linha.add('Latitude: ${position.latitude}  |  Longetude: ${position.longitude}');
-          });
-          if(_ultimaPosicaoOpbtida != null){
-            final distancia = Geolocator.distanceBetween(
-                _ultimaPosicaoOpbtida!.latitude, _ultimaPosicaoOpbtida!.longitude,
-                position.latitude, position.longitude);
-            _distanciaTotalPercorrida += distancia;
-          }
-          _linha.add('Distancia percorrida: ${_distanciaTotalPercorrida.toInt()} M');
-          _ultimaPosicaoOpbtida = position;
-        });
-  }
-
-  void _pararMonitoramento() {
-    _subscription!.cancel();
-    setState(() {
-      _subscription = null;
-      _ultimaPosicaoOpbtida = null;
-      _distanciaTotalPercorrida = 0;
-    });
-  }
-
-  Future<bool> _servicoHabilitado() async {
-    bool servicoHabilotado = await Geolocator.isLocationServiceEnabled();
-    if(!servicoHabilotado){
-      await _mostrarMensagemDialog('Para utilizar esse recurso, você deverá habilitar o serviço de localização '
-          'no dispositivo');
-      Geolocator.openLocationSettings();
+      await _mostrarMensagemDialog(
+          'Para utilizar este recurso, é necessário acessar as configurações '
+              'do dispositivo e permitir a utilização do serviço de localização.'
+      );
+      Geolocator.openAppSettings();
       return false;
     }
     return true;
   }
 
-  Future<bool> _permissoesPermitidas() async {
+  Future<bool> _verificaPermissoes() async{
     LocationPermission permissao = await Geolocator.checkPermission();
     if(permissao == LocationPermission.denied){
       permissao = await Geolocator.requestPermission();
       if(permissao == LocationPermission.denied){
-        _mostrarMensagem('Não será possível utilizar o recusro por falta de permissão');
+        _mostrarMensagem('Não foi possível utilizar o recurso por falta de permissão');
         return false;
       }
     }
     if(permissao == LocationPermission.deniedForever){
       await _mostrarMensagemDialog(
-          'Para utilizar esse recurso, você deverá acessar as configurações '
-              'do appe permitir a utilização do serviço de localização');
+          'Para utilizar este recurso, é necessário acessar as configurações '
+              'do dispositivo e permitir a utilização do serviço de localização.'
+      );
       Geolocator.openAppSettings();
       return false;
     }
     return true;
-
   }
 
   void _mostrarMensagem(String mensagem){
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(mensagem)));
+    ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+            content: Text(mensagem)
+        )
+    );
   }
 
   Future<void> _mostrarMensagemDialog(String mensagem) async{
     await showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: Text('Atenção'),
-        content: Text(mensagem),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: Text('OK'),
-          ),
-        ],
-      ),
+        context: context,
+        builder: (_) => AlertDialog(
+          title: Text('Atenção'),
+          content: Text(mensagem),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: Text('OK')
+            )
+          ],
+        )
     );
   }
 
-  void _limpaLog(){
-    setState(() {
-      _linha.clear();
-    });
-  }
 }

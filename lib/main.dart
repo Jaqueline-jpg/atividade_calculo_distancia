@@ -1,20 +1,19 @@
+
 import 'package:flutter/material.dart';
-import 'package:gps_md/pages/home_page.dart';
+import 'package:gerenciador_tarefas_md/pages/home_page.dart';
 
 void main() {
-  runApp(const MyApp());
+  runApp(const PontoEletronico());
 }
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+class PontoEletronico extends StatelessWidget {
+  const PontoEletronico({super.key});
 
-  // This widget is the root of your application.
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Usando GPS',
+      title: 'Ponto Eletrônico',
       theme: ThemeData(
-
         primarySwatch: Colors.blue,
       ),
       home: HomePage(),
