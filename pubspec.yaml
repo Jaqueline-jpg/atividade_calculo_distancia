@@ -40,7 +40,7 @@ dependencies:
   sqflite: ^2.2.6
   maps_launcher: ^2.2.0
 
-  dev_dependencies:
+dev_dependencies:
   flutter_test:
     sdk: flutter
 
