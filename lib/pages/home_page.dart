@@ -34,6 +34,11 @@ class _HomePageState extends State<HomePage>{
     _atualizarLista();
   }
 
+
+
+
+
+
   void _update() {
     setState(() {
       formattedTime = DateFormat('Hms').format(DateTime.now());
